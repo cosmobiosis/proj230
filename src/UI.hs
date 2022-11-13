@@ -43,7 +43,7 @@ data Tick = Tick
 -- if we call this "Name" now.
 type Name = ()
 
-data Cell = Miner | Empty
+data Cell = MinerN | MinerS | MinerW | MinerE | Empty | Boulder | Bomb0 | Bomb1 | Bomb2
 
 -- App definition
 
@@ -69,11 +69,19 @@ main = do
 -- Handling events
 
 handleEvent :: Game -> BrickEvent Name Tick -> EventM Name (Next Game)
---handleEvent g (AppEvent Tick)                       = continue $ step g
+handleEvent g (AppEvent Tick)                       = continue $ gameTickAction g
+
 handleEvent g (VtyEvent (V.EvKey V.KUp []))         = continue $ minerMove g North
 handleEvent g (VtyEvent (V.EvKey V.KDown []))       = continue $ minerMove g South
-handleEvent g (VtyEvent (V.EvKey V.KRight []))      = continue $ minerMove g East
 handleEvent g (VtyEvent (V.EvKey V.KLeft []))       = continue $ minerMove g West
+handleEvent g (VtyEvent (V.EvKey V.KRight []))      = continue $ minerMove g East
+
+handleEvent g (VtyEvent (V.EvKey (V.KChar 'w') []))       = continue $ minerMove g North
+handleEvent g (VtyEvent (V.EvKey (V.KChar 's') []))       = continue $ minerMove g South
+handleEvent g (VtyEvent (V.EvKey (V.KChar 'a') []))       = continue $ minerMove g West
+handleEvent g (VtyEvent (V.EvKey (V.KChar 'd') []))       = continue $ minerMove g East
+handleEvent g (VtyEvent (V.EvKey (V.KChar ' ') []))       = continue $ minerPutBomb g
+
 -- handleEvent g (VtyEvent (V.EvKey (V.KChar 'r') [])) = liftIO (initGame) >>= continue
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'q') [])) = halt g
 -- handleEvent g (VtyEvent (V.EvKey V.KEsc []))        = halt g
@@ -113,24 +121,70 @@ drawGrid g = withBorderStyle BS.unicodeBold
     cellsInRow y = [drawCoord (V2 x y) | x <- [0..width-1]]
     drawCoord    = drawCell . cellAt
     cellAt c
-      | c == g ^. miner     = Miner
-      | otherwise           = Empty
+      | c == g ^. miner = case g ^. minerDirc of
+          North -> MinerN
+          South -> MinerS
+          East -> MinerE
+          West -> MinerW
+      | c == g ^. bomb && g ^. bombState /= -1 = case g ^. bombState of
+        0 -> Bomb0
+        1 -> Bomb1
+        2 -> Bomb2
+      | otherwise       = Empty
 
 drawCell :: Cell -> Widget Name
-drawCell Miner = withAttr minerAttr cw
-drawCell Empty = withAttr emptyAttr cw
+drawCell MinerN = withAttr minerNAttr arrowN
+drawCell MinerS = withAttr minerSAttr arrowS
+drawCell MinerW = withAttr minerWAttr arrowW
+drawCell MinerE = withAttr minerEAttr arrowE
+drawCell Bomb0  = withAttr bomb0Attr  smallCircle
+drawCell Bomb1  = withAttr bomb1Attr  largeCircle
+drawCell Bomb2  = withAttr bomb2Attr  square
+drawCell Empty = withAttr  emptyAttr  square
 
-cw :: Widget Name
-cw = str "  "
+square :: Widget Name
+square = str "   "
+
+arrowN :: Widget Name
+arrowN = str " N "
+
+arrowS :: Widget Name
+arrowS = str " S "
+
+arrowW :: Widget Name
+arrowW = str " W "
+
+arrowE :: Widget Name
+arrowE = str " E "
+
+smallCircle :: Widget Name
+smallCircle = str " o "
+
+largeCircle :: Widget Name
+largeCircle = str " Q "
+
+minerColor :: V.Attr
+minerColor = V.black `on` V.yellow
 
 theMap :: B.AttrMap
 theMap = B.attrMap V.defAttr
-  [ (minerAttr, V.blue `on` V.blue)
+  [
+    (minerNAttr, minerColor),
+    (minerSAttr, minerColor),
+    (minerWAttr, minerColor),
+    (minerEAttr, minerColor),
+    (bomb2Attr, V.red `on` V.red)
   ]
 
 gameOverAttr :: AttrName
 gameOverAttr = "gameOver"
 
-minerAttr, emptyAttr :: AttrName
-minerAttr = "minerAttr"
-emptyAttr = "emptyAttr"
+minerNAttr, minerSAttr, minerWAttr, minerEAttr, bomb0Attr, bomb1Attr, emptyAttr :: AttrName
+minerNAttr = "minerNAttr"
+minerSAttr = "minerSAttr"
+minerWAttr = "minerWAttr"
+minerEAttr = "minerWAttr"
+bomb0Attr  = "bomb0Attr"
+bomb1Attr  = "bomb1Attr"
+bomb2Attr  = "bomb2Attr"
+emptyAttr  = "emptyAttr"
