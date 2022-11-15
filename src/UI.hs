@@ -43,7 +43,7 @@ data Tick = Tick
 -- if we call this "Name" now.
 type Name = ()
 
-data Cell = MinerN | MinerS | MinerW | MinerE | Empty | Boulder | Bomb0 | Bomb1 | Bomb2
+data Cell = MinerN | MinerS | MinerW | MinerE | Empty | Earth | Boulder | Bomb0 | Bomb1 | Bomb2 | Blast
 
 -- App definition
 
@@ -130,6 +130,10 @@ drawGrid g = withBorderStyle BS.unicodeBold
         0 -> Bomb0
         1 -> Bomb1
         2 -> Bomb2
+        _ -> Empty
+      | g ^. bombState == 2 && inBlastRange g c = Blast
+      | c `elem` g ^. boulders = Boulder
+      | c `elem` g ^. earths = Earth
       | otherwise       = Empty
 
 drawCell :: Cell -> Widget Name
@@ -140,6 +144,9 @@ drawCell MinerE = withAttr minerEAttr arrowE
 drawCell Bomb0  = withAttr bomb0Attr  smallCircle
 drawCell Bomb1  = withAttr bomb1Attr  largeCircle
 drawCell Bomb2  = withAttr bomb2Attr  square
+drawCell Blast = withAttr  blastAttr  square
+drawCell Earth  = withAttr earthAttr  square
+drawCell Boulder = withAttr boulderAttr square
 drawCell Empty = withAttr  emptyAttr  square
 
 square :: Widget Name
@@ -163,8 +170,20 @@ smallCircle = str " o "
 largeCircle :: Widget Name
 largeCircle = str " Q "
 
+bbox :: Widget Name
+bbox = str " B "
+
+xbox ::  Widget Name
+xbox = str " X "
+
 minerColor :: V.Attr
-minerColor = V.black `on` V.yellow
+minerColor = V.black `on` V.green
+
+earthColor :: V.Color
+earthColor = V.rgbColor 111 78 55
+
+boulderColor :: V.Color
+boulderColor = V.rgbColor 124 129 124
 
 theMap :: B.AttrMap
 theMap = B.attrMap V.defAttr
@@ -173,7 +192,10 @@ theMap = B.attrMap V.defAttr
     (minerSAttr, minerColor),
     (minerWAttr, minerColor),
     (minerEAttr, minerColor),
-    (bomb2Attr, V.red `on` V.red)
+    (bomb2Attr, V.red `on` V.red),
+    (blastAttr, V.yellow `on` V.yellow),
+    (earthAttr, earthColor `on` earthColor),
+    (boulderAttr, boulderColor `on` boulderColor)
   ]
 
 gameOverAttr :: AttrName
@@ -187,4 +209,7 @@ minerEAttr = "minerWAttr"
 bomb0Attr  = "bomb0Attr"
 bomb1Attr  = "bomb1Attr"
 bomb2Attr  = "bomb2Attr"
+blastAttr  = "blastAttr"
+boulderAttr = "boulderAttr"
+earthAttr = "earthAttr"
 emptyAttr  = "emptyAttr"
