@@ -306,6 +306,6 @@ initGame = do
       , _minerDirc = North
       , _blastCrossRadius = 1
       , _blastSquareRadius = 0
-      , _blastCircleRadius = 10
+      , _blastCircleRadius = width `div` 4
       , _monster = V2 (width `div` 2) 0
       }
