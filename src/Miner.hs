@@ -80,8 +80,8 @@ makeLenses ''Game
 -- Constants
 
 height, width :: Int
-height = 20
-width = 20
+height = 15
+width = 15
 
 -- Utils
 bombTickAction :: Game -> Game
@@ -118,40 +118,46 @@ setBombConfig gs0 newCross newSquare newCircle newBombTick =
 scoreTickAction :: Game -> Game
 scoreTickAction gs0 =
   let numBouldersInRange = length (filter (inBlastRange gs0) (gs0 ^. boulders))
-      deltaScore = numBouldersInRange ^ 2
+      deltaScore = numBouldersInRange + (\x -> if x then 10 else 0) (inBlastRange gs0 (gs0 ^. monster))
       gs1 = gs0 & score .~ (gs0 ^. score + deltaScore)
   in  gs1
 
 gameTickAction :: Game -> Game
 gameTickAction gs0 =
-  let bombg
-        -- bomb not setting up
-        | gs0 ^. bombState == -1
-          = gs0
-        -- bomb ticking
-        | (gs0 ^. bombTick /= 0)
-          = bombTickAction gs0
-        -- bomb begin exploding
-        | (gs0 ^. bombState == 1)
-          = let gs1 = bombNextState gs0
-                gs2 = gs1 & earths .~ filter (not . inBlastRange gs1) (gs1 ^. earths)
-                gs3 = scoreTickAction gs2
-                gs4 = gs3 & boulders .~ filter (not . inBlastRange gs3) (gs3 ^. boulders)
-            in gs4
-        -- bomb entering next state
-        | otherwise
-          = bombNextState gs0
-      monsg = monsterTickAction bombg
-  in monsg
+  if gs0 ^. dead
+    then gs0
+  else
+    let bombg
+          -- bomb not setting up
+          | gs0 ^. bombState == -1
+            = gs0
+          -- bomb ticking
+          | (gs0 ^. bombTick /= 0)
+            = bombTickAction gs0
+          -- bomb begin exploding
+          | (gs0 ^. bombState == 1)
+            = let gs1 = bombNextState gs0
+                  gs2 = gs1 & earths .~ filter (not . inBlastRange gs1) (gs1 ^. earths)
+                  gs3 = scoreTickAction gs2
+                  gs4 = gs3 & boulders .~ filter (not . inBlastRange gs3) (gs3 ^. boulders)
+              in gs4
+          -- bomb entering next state
+          | otherwise
+            = bombNextState gs0
+        monsg = monsterTickAction bombg
+    in monsg
 
 delete :: Eq a => a -> [a] -> [a]
 delete deleted xs = [ x | x <- xs, x /= deleted ]
 
 monsterTickAction :: Game -> Game
 monsterTickAction gs0
+  | gs0 ^. monster == gs0 ^. miner =
+      let gsDead = gs0 & dead .~ True
+      in gsDead
   | (gs0 ^. monsterRestTick) /= 0 =
-        let gsMonsterRest = gs0 & monsterRestTick .~ ((gs0 ^. monsterRestTick) - 1)
-        in gsMonsterRest
+      let gsMonsterRest = gs0 & monsterRestTick .~ ((gs0 ^. monsterRestTick) - 1)
+      in gsMonsterRest
   | otherwise =
       let dfsRes = monsterNextDir gs0
           nPos = case dfsRes of
@@ -169,7 +175,7 @@ monsterNextDir g =
       r2 = monsterNextDirHelper g (V2 (x - 1) y) visited West 0
       r3 = monsterNextDirHelper g (V2 (x + 1) y) visited East 0
       [rr1, rr2, rr3, rr4] = sortBy (\ x y -> compare (snd x) (snd y)) [r0, r1, r2, r3]
-  in fst rr1 <|> fst rr2 <|> fst rr3 <|> fst rr4
+  in fst r0 <|> fst r1 <|> fst r2 <|> fst r3
 
 monsterNextDirHelper :: Game -> Coord -> [Coord] -> Direction -> Int -> (Maybe Direction, Int)
 -- current: Coord
@@ -195,6 +201,7 @@ monsterNextDirHelper g c@(V2 x y) visited initD curDepth
 
 minerTickAction :: Game -> Direction -> Game
 minerTickAction gs0 dir
+    | gs0 ^. dead = gs0
     | gs0 ^. minerDirc /= dir =
         let gsMinerTurn = gs0 & minerDirc .~ dir
         in gsMinerTurn
@@ -287,14 +294,14 @@ initGame = do
   allCoords <- knuthShuffle [V2 i j | i <- [0 .. width - 1], j <- [0 .. height - 2]]
   let xm = 0
       ym = height - 1
-      initialBoulders = filter (\(V2 x y) -> x /= (width `div` 2)) (take (width * height `div` 4) allCoords)
+      initialBoulders = filter (\(V2 x y) -> x /= (width `div` 2)) (take (width * height `div` 3) allCoords)
       initialEarths = filter (`notElem` initialBoulders) initEarth
   return $ Game
       { _miner  = V2 xm ym
       , _minerRestTickConst = 2
       , _minerRestTick = 2
-      , _monsterRestTickConst = 7
-      , _monsterRestTick = 7
+      , _monsterRestTickConst = 5
+      , _monsterRestTick = 5
       , _score  = 0
       , _dead   = False
       , _bomb = V2 0 0
@@ -306,6 +313,6 @@ initGame = do
       , _minerDirc = North
       , _blastCrossRadius = 1
       , _blastSquareRadius = 0
-      , _blastCircleRadius = width `div` 4
-      , _monster = V2 (width `div` 2) (height `div` 2)
+      , _blastCircleRadius = width `div` 3
+      , _monster = V2 (width `div` 2) 0
       }

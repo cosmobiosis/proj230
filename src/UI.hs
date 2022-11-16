@@ -43,14 +43,14 @@ data Tick = Tick
 -- if we call this "Name" now.
 type Name = ()
 
-data Cell = 
-  MinerN | 
-  MinerS | 
-  MinerW | 
-  MinerE 
-  | Empty 
-  | Earth | Boulder 
-  | Bomb0 | Bomb1 | Bomb2 | Blast 
+data Cell =
+  MinerN |
+  MinerS |
+  MinerW |
+  MinerE
+  | Empty
+  | Earth | Boulder
+  | Bomb0 | Bomb1 | Bomb2 | Blast
   | Monster
 
 -- App definition
@@ -88,6 +88,7 @@ handleEvent g (VtyEvent (V.EvKey (V.KChar 'w') []))       = continue $ minerTick
 handleEvent g (VtyEvent (V.EvKey (V.KChar 's') []))       = continue $ minerTickAction g South
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'a') []))       = continue $ minerTickAction g West
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'd') []))       = continue $ minerTickAction g East
+handleEvent g (VtyEvent (V.EvKey (V.KChar 'r') [])) = liftIO initGame >>= continue
 handleEvent g (VtyEvent (V.EvKey (V.KChar ' ') []))       = continue $ minerPutBomb g
 
 -- handleEvent g (VtyEvent (V.EvKey (V.KChar 'r') [])) = liftIO (initGame) >>= continue
@@ -129,12 +130,12 @@ drawGrid g = withBorderStyle BS.unicodeBold
     cellsInRow y = [drawCoord (V2 x y) | x <- [0..width-1]]
     drawCoord    = drawCell . cellAt
     cellAt c
+      | c == g ^. monster = Monster
       | c == g ^. miner = case g ^. minerDirc of
           North -> MinerN
           South -> MinerS
           East -> MinerE
           West -> MinerW
-      | c == g ^. monster = Monster
       | c == g ^. bomb && g ^. bombState /= -1 = case g ^. bombState of
         0 -> Bomb0
         1 -> Bomb1
@@ -209,7 +210,8 @@ theMap = B.attrMap V.defAttr
     (blastAttr, V.yellow `on` V.yellow),
     (earthAttr, earthColor `on` earthColor),
     (boulderAttr, boulderColor `on` boulderColor),
-    (monsterAttr, V.white `on` V.red)
+    (monsterAttr, V.white `on` V.red),
+    (gameOverAttr, V.red `on` V.black)
   ]
 
 gameOverAttr :: AttrName
