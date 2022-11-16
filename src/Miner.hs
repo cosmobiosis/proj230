@@ -287,7 +287,7 @@ initGame = do
   allCoords <- knuthShuffle [V2 i j | i <- [0 .. width - 1], j <- [0 .. height - 2]]
   let xm = 0
       ym = height - 1
-      initialBoulders = filter (\(V2 x y) -> x /= (width `div` 2)) (take 50 allCoords)
+      initialBoulders = filter (\(V2 x y) -> x /= (width `div` 2)) (take (width * height `div` 4) allCoords)
       initialEarths = filter (`notElem` initialBoulders) initEarth
   return $ Game
       { _miner  = V2 xm ym
