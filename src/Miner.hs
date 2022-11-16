@@ -9,9 +9,10 @@ module Miner
   , minerPutBomb
   , inBlastRange
   , monster
+  , monsterHP
   , Game(..)
   , Direction(..)
-  , dead, score, miner, minerDirc, bomb, bombState, blastCrossRadius, earths, boulders
+  , win, dead, score, miner, minerDirc, bomb, bombState, blastCrossRadius, earths, boulders
   , height, width
   ) where
 
@@ -54,6 +55,8 @@ data Game = Game
   , _bombTick :: Int
   , _bombState :: Int -- -1 means no bomb been placed, 0 means bomb0, 1 means bomb1, 2 means bomb exploding
   , _dead   :: Bool
+  , _win    :: Bool
+  , _monsterHP :: Int
   , _minerRestTickConst :: Int
   , _minerRestTick :: Int
   , _monsterRestTickConst :: Int
@@ -118,15 +121,17 @@ setBombConfig gs0 newCross newSquare newCircle newBombTick =
 scoreTickAction :: Game -> Game
 scoreTickAction gs0 =
   let numBouldersInRange = length (filter (inBlastRange gs0) (gs0 ^. boulders))
-      deltaScore = numBouldersInRange + (\x -> if x then 10 else 0) (inBlastRange gs0 (gs0 ^. monster))
+      monsterHit = inBlastRange gs0 (gs0 ^. monster)
+      deltaScore = numBouldersInRange + (\x -> if x then 10 else 0) monsterHit
       gs1 = gs0 & score .~ (gs0 ^. score + deltaScore)
-  in  gs1
+      gs2 = gs1 & monsterHP .~ (gs1 ^. monsterHP - (\x -> if x then 1 else 0) monsterHit)
+  in  gs2
 
 gameTickAction :: Game -> Game
-gameTickAction gs0 =
-  if gs0 ^. dead
-    then gs0
-  else
+gameTickAction gs0
+  | gs0 ^. dead || gs0 ^. win = gs0
+  | inBlastRange gs0 (gs0 ^. miner) && gs0 ^. bombState == 2 = gs0 & dead .~ True
+  | otherwise =
     let bombg
           -- bomb not setting up
           | gs0 ^. bombState == -1
@@ -155,6 +160,9 @@ monsterTickAction gs0
   | gs0 ^. monster == gs0 ^. miner =
       let gsDead = gs0 & dead .~ True
       in gsDead
+  | gs0 ^. monsterHP <= 0 =
+      let gsWin = gs0 & win .~ True
+      in gsWin
   | (gs0 ^. monsterRestTick) /= 0 =
       let gsMonsterRest = gs0 & monsterRestTick .~ ((gs0 ^. monsterRestTick) - 1)
       in gsMonsterRest
@@ -169,13 +177,14 @@ monsterTickAction gs0
 monsterNextDir :: Game -> Maybe Direction
 monsterNextDir g =
   let c@(V2 x y) = g ^. monster
+      minerC@(V2 xm ym) = g ^. miner
       visited = [c]
       r0 = monsterNextDirHelper g (V2 x (y + 1)) visited North 0
       r1 = monsterNextDirHelper g (V2 x (y - 1)) visited South 0
       r2 = monsterNextDirHelper g (V2 (x - 1) y) visited West 0
       r3 = monsterNextDirHelper g (V2 (x + 1) y) visited East 0
       [rr1, rr2, rr3, rr4] = sortBy (\ x y -> compare (snd x) (snd y)) [r0, r1, r2, r3]
-  in fst r0 <|> fst r1 <|> fst r2 <|> fst r3
+  in fst rr1 <|> fst rr2 <|> fst rr3 <|> fst rr4
 
 monsterNextDirHelper :: Game -> Coord -> [Coord] -> Direction -> Int -> (Maybe Direction, Int)
 -- current: Coord
@@ -201,7 +210,7 @@ monsterNextDirHelper g c@(V2 x y) visited initD curDepth
 
 minerTickAction :: Game -> Direction -> Game
 minerTickAction gs0 dir
-    | gs0 ^. dead = gs0
+    | gs0 ^. dead || gs0 ^. win = gs0
     | gs0 ^. minerDirc /= dir =
         let gsMinerTurn = gs0 & minerDirc .~ dir
         in gsMinerTurn
@@ -304,6 +313,7 @@ initGame = do
       , _monsterRestTick = 5
       , _score  = 0
       , _dead   = False
+      , _win    = False
       , _bomb = V2 0 0
       , _earths = initialEarths
       , _boulders = initialBoulders
@@ -311,8 +321,9 @@ initGame = do
       , _bombTick = 15
       , _bombState = -1
       , _minerDirc = North
-      , _blastCrossRadius = 1
+      , _blastCrossRadius = 2
       , _blastSquareRadius = 0
-      , _blastCircleRadius = width `div` 3
+      , _blastCircleRadius = 5
       , _monster = V2 (width `div` 2) 0
+      , _monsterHP = 3
       }

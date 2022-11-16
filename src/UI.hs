@@ -88,12 +88,17 @@ handleEvent g (VtyEvent (V.EvKey (V.KChar 'w') []))       = continue $ minerTick
 handleEvent g (VtyEvent (V.EvKey (V.KChar 's') []))       = continue $ minerTickAction g South
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'a') []))       = continue $ minerTickAction g West
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'd') []))       = continue $ minerTickAction g East
+handleEvent g (VtyEvent (V.EvKey (V.KChar 'W') []))       = continue $ minerTickAction g North
+handleEvent g (VtyEvent (V.EvKey (V.KChar 'S') []))       = continue $ minerTickAction g South
+handleEvent g (VtyEvent (V.EvKey (V.KChar 'A') []))       = continue $ minerTickAction g West
+handleEvent g (VtyEvent (V.EvKey (V.KChar 'D') []))       = continue $ minerTickAction g East
+
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'r') [])) = liftIO initGame >>= continue
+handleEvent g (VtyEvent (V.EvKey (V.KChar 'R') [])) = liftIO initGame >>= continue
 handleEvent g (VtyEvent (V.EvKey (V.KChar ' ') []))       = continue $ minerPutBomb g
 
--- handleEvent g (VtyEvent (V.EvKey (V.KChar 'r') [])) = liftIO (initGame) >>= continue
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'q') [])) = halt g
--- handleEvent g (VtyEvent (V.EvKey V.KEsc []))        = halt g
+handleEvent g (VtyEvent (V.EvKey (V.KChar 'Q') [])) = halt g
 handleEvent g _                                     = continue g
 
 -- Drawing
@@ -103,10 +108,19 @@ drawUI g =
   [ C.center $ padRight (Pad 2) (drawStats g) <+> drawGrid g ]
 
 drawStats :: Game -> Widget Name
-drawStats g = hLimit 11
+drawStats g = hLimit 15
   $ vBox [ drawScore (g ^. score)
+         , drawMonsterHP (g ^. monsterHP)
          , padTop (Pad 2) $ drawGameOver (g ^. dead)
+         , padTop (Pad 2) $ drawGameWin (g ^. win)
          ]
+
+drawMonsterHP :: Int -> Widget Name
+drawMonsterHP n = withBorderStyle BS.unicodeBold
+  $ B.borderWithLabel (str "Monster HP")
+  $ C.hCenter
+  $ padAll 1
+  $ str $ show n
 
 drawScore :: Int -> Widget Name
 drawScore n = withBorderStyle BS.unicodeBold
@@ -119,6 +133,12 @@ drawGameOver :: Bool -> Widget Name
 drawGameOver dead =
   if dead
      then withAttr gameOverAttr $ C.hCenter $ str "GAME OVER"
+     else emptyWidget
+
+drawGameWin :: Bool -> Widget Name
+drawGameWin win =
+  if win
+     then withAttr gameWinAttr $ C.hCenter $ str "GAME WIN"
      else emptyWidget
 
 drawGrid :: Game -> Widget Name
@@ -211,11 +231,15 @@ theMap = B.attrMap V.defAttr
     (earthAttr, earthColor `on` earthColor),
     (boulderAttr, boulderColor `on` boulderColor),
     (monsterAttr, V.white `on` V.red),
-    (gameOverAttr, V.red `on` V.black)
+    (gameOverAttr, V.red `on` V.black),
+    (gameWinAttr, V.green `on` V.black)
   ]
 
 gameOverAttr :: AttrName
 gameOverAttr = "gameOver"
+
+gameWinAttr :: AttrName
+gameWinAttr = "gameWin"
 
 minerNAttr, minerSAttr, minerWAttr, minerEAttr, bomb0Attr, bomb1Attr, emptyAttr :: AttrName
 minerNAttr = "minerNAttr"
