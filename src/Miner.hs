@@ -1,21 +1,24 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE BlockArguments #-}
 module Miner
   ( initGame
   , gameTickAction
-  , minerMove
+  , minerTickAction
   , minerPutBomb
   , inBlastRange
+  , monster
   , Game(..)
   , Direction(..)
   , dead, score, miner, minerDirc, bomb, bombState, blastCrossRadius, earths, boulders
   , height, width
   ) where
 
+import MyUtils
 import Control.Applicative ((<|>))
 import Control.Monad (guard)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 
 import Control.Lens hiding ((<|), (|>), (:>), (:<))
 import Control.Monad.Trans.Maybe
@@ -39,6 +42,7 @@ import Brick
   )
 import System.Random.Stateful (StdGen)
 import System.Random (mkStdGen)
+import Data.List (sortBy)
 
 data Game = Game
   { _miner  :: Coord        -- ^ miner as a point of coord
@@ -52,9 +56,13 @@ data Game = Game
   , _dead   :: Bool
   , _minerRestTickConst :: Int
   , _minerRestTick :: Int
+  , _monsterRestTickConst :: Int
+  , _monsterRestTick :: Int
   , _blastCrossRadius :: Int
   , _blastSquareRadius :: Int
+  , _blastCircleRadius :: Int
   , _earths :: [Coord]
+  , _monster :: Coord
   } deriving (Show)
 
 type Coord = V2 Int
@@ -72,8 +80,8 @@ makeLenses ''Game
 -- Constants
 
 height, width :: Int
-height = 40
-width = 40
+height = 20
+width = 20
 
 -- Utils
 bombTickAction :: Game -> Game
@@ -85,12 +93,34 @@ bombNextState gs0
   | otherwise =
     gs0 & bombState .~ (gs0 ^. bombState + 1) & bombTick .~ (gs0 ^. bombTickConst)
 
+bombX :: Game -> Int
+bombX g = g ^. bomb ^. _x
+
+bombY :: Game -> Int
+bombY g = g ^. bomb ^. _y
+
 inBlastRange :: Game -> Coord -> Bool
 inBlastRange g (V2 x y)
-  | g ^. bomb ^. _x == x && abs ((g ^. bomb ^. _y) - y) <= g ^. blastCrossRadius = True
-  | g ^. bomb ^. _y == y && abs ((g ^. bomb ^. _x) - x) <= g ^. blastCrossRadius = True
-  | (abs ((g ^. bomb ^. _x) - x) <= g ^. blastSquareRadius) && (abs ((g ^. bomb ^. _y) - y) <= g ^. blastSquareRadius) = True
+  | bombX g == x && abs (bombY g - y) <= g ^. blastCrossRadius = True
+  | bombY g == y && abs (bombX g - x) <= g ^. blastCrossRadius = True
+  | (abs (bombX g - x) <= g ^. blastSquareRadius) && (abs (bombY g - y) <= g ^. blastSquareRadius) = True
+  | abs (bombX g - x) + abs (bombY g - y) == g ^. blastCircleRadius = True
   | otherwise = False
+
+setBombConfig :: Game -> Int -> Int -> Int -> Int -> Game
+setBombConfig gs0 newCross newSquare newCircle newBombTick =
+  let gs1 = gs0 & blastCrossRadius .~ newCross
+      gs2 = gs1 & blastSquareRadius .~ newSquare
+      gs3 = gs2 & blastCircleRadius .~ newCircle
+      gs4 = gs3 & bombTickConst .~ newBombTick
+  in  gs4
+
+scoreTickAction :: Game -> Game
+scoreTickAction gs0 =
+  let numBouldersInRange = length (filter (inBlastRange gs0) (gs0 ^. boulders))
+      deltaScore = numBouldersInRange ^ 2
+      gs1 = gs0 & score .~ (gs0 ^. score + deltaScore)
+  in  gs1
 
 gameTickAction :: Game -> Game
 gameTickAction gs0 =
@@ -104,19 +134,67 @@ gameTickAction gs0 =
         -- bomb begin exploding
         | (gs0 ^. bombState == 1)
           = let gs1 = bombNextState gs0
-                gs2 = gs1 & earths .~ filter (not . inBlastRange gs0) (gs0 ^. earths)
-                gs3 = gs2 & boulders .~ filter (not . inBlastRange gs0) (gs0 ^. boulders)
-            in gs3
+                gs2 = gs1 & earths .~ filter (not . inBlastRange gs1) (gs1 ^. earths)
+                gs3 = scoreTickAction gs2
+                gs4 = gs3 & boulders .~ filter (not . inBlastRange gs3) (gs3 ^. boulders)
+            in gs4
         -- bomb entering next state
         | otherwise
           = bombNextState gs0
-  in bombg
+      monsg = monsterTickAction bombg
+  in monsg
 
 delete :: Eq a => a -> [a] -> [a]
 delete deleted xs = [ x | x <- xs, x /= deleted ]
 
-minerMove :: Game -> Direction -> Game
-minerMove gs0 dir
+monsterTickAction :: Game -> Game
+monsterTickAction gs0
+  | (gs0 ^. monsterRestTick) /= 0 =
+        let gsMonsterRest = gs0 & monsterRestTick .~ ((gs0 ^. monsterRestTick) - 1)
+        in gsMonsterRest
+  | otherwise =
+      let dfsRes = monsterNextDir gs0
+          nPos = case dfsRes of
+            Just dir -> neighborCoord dir (gs0 ^. monster)
+            Nothing -> gs0 ^. monster
+          gs1 = gs0 & monster .~ nPos & monsterRestTick .~ (gs0 ^. monsterRestTickConst)
+      in gs1
+
+monsterNextDir :: Game -> Maybe Direction
+monsterNextDir g =
+  let c@(V2 x y) = g ^. monster
+      visited = [c]
+      r0 = monsterNextDirHelper g (V2 x (y + 1)) visited North 0
+      r1 = monsterNextDirHelper g (V2 x (y - 1)) visited South 0
+      r2 = monsterNextDirHelper g (V2 (x - 1) y) visited West 0
+      r3 = monsterNextDirHelper g (V2 (x + 1) y) visited East 0
+      [rr1, rr2, rr3, rr4] = sortBy (\ x y -> compare (snd x) (snd y)) [r0, r1, r2, r3]
+  in fst rr1 <|> fst rr2 <|> fst rr3 <|> fst rr4
+
+monsterNextDirHelper :: Game -> Coord -> [Coord] -> Direction -> Int -> (Maybe Direction, Int)
+-- current: Coord
+-- visited: [Coord]
+-- initD: Direction
+-- curDepth: Int
+monsterNextDirHelper g c@(V2 x y) visited initD curDepth
+  | c == g ^. miner = (Just initD, 0)
+  | curDepth > width = (Nothing, 0)
+  | not (coordInBound c) = (Nothing, 0)
+  | not (coordEmpty g c) = (Nothing, 0)
+  | c `elem` visited = (Nothing, 0)
+  | isJust (fst res1) = (Just initD, snd res1 + 1)
+  | isJust (fst res2) = (Just initD, snd res2 + 1)
+  | isJust (fst res3) = (Just initD, snd res3 + 1)
+  | isJust (fst res4) = (Just initD, snd res4 + 1)
+  | otherwise = (Nothing, 0)
+  where
+    res1 = monsterNextDirHelper g (V2 (x + 1) y) (visited ++ [c]) initD (curDepth + 1)
+    res2 = monsterNextDirHelper g (V2 (x - 1) y) (visited ++ [c]) initD (curDepth + 1)
+    res3 = monsterNextDirHelper g (V2 x (y + 1)) (visited ++ [c]) initD (curDepth + 1)
+    res4 = monsterNextDirHelper g (V2 x (y - 1)) (visited ++ [c]) initD (curDepth + 1)
+
+minerTickAction :: Game -> Direction -> Game
+minerTickAction gs0 dir
     | gs0 ^. minerDirc /= dir =
         let gsMinerTurn = gs0 & minerDirc .~ dir
         in gsMinerTurn
@@ -130,9 +208,9 @@ minerMove gs0 dir
                 miner .~ nPos &
                 minerRestTick .~ (gs0 ^. minerRestTickConst) &
                 earths .~ delete nPos (gs0 ^. earths)
-                -- let gsMinerMove0 = gs0 & miner .~ nPos
-                --     gsMinerMove1 = gsMinerMove0 & minerRestTick .~ (gs0 ^. minerRestTickConst)
-                -- in gsMinerMove1
+                -- let gsminerTickAction0 = gs0 & miner .~ nPos
+                --     gsminerTickAction1 = gsminerTickAction0 & minerRestTick .~ (gs0 ^. minerRestTickConst)
+                -- in gsminerTickAction1
             else
               gs0
     | otherwise = gs0
@@ -161,9 +239,9 @@ facingNewCoord _ _ = Nothing
 coordInBound :: Coord -> Bool
 coordInBound (V2 x y)
     | y < 0 = False
-    | y >= height - 1 = False
+    | y >= height = False
     | x < 0 = False
-    | x >= width - 1 = False
+    | x >= width = False
     | otherwise = True
 
 coordIsEarth :: Game -> Coord -> Bool
@@ -201,39 +279,33 @@ padEarth y
 initEarth :: [Coord]
 initEarth = padEarth 0
 
-padBoulderRow :: Int -> Int -> [Coord]
-padBoulderRow x y
-  | x == width = []
-  | (x + y == width || abs (x - y) == 7) && (x /= (width `div` 2)) = V2 x y : padBoulderRow (x+1) y
-  | otherwise = padBoulderRow (x+1) y
-
-padBoulder :: Int -> [Coord]
-padBoulder y
-  | y == height - 1 = []
-  | otherwise = padBoulderRow 0 y ++ padBoulder (y + 1)
-
-initBoulder :: [Coord]
-initBoulder = padBoulder 0
+takeCoords :: [Coord] -> Int -> ([Coord], [Coord])
+takeCoords coords n = (take n coords, lastN (length coords - n) coords)
 
 initGame :: IO Game
-initGame =
-    let xm = width `div` 2
-        ym = 0
-        initialBoulders = initBoulder
-        initialEarths = filter (`notElem` initialBoulders) initEarth
-    in pure $ Game
-        { _miner  = V2 xm ym
-        , _minerRestTickConst = 2
-        , _minerRestTick = 2
-        , _score  = 0
-        , _dead   = False
-        , _bomb = V2 0 0
-        , _earths = initialEarths
-        , _boulders = initialBoulders
-        , _bombTickConst = 12
-        , _bombTick = 15
-        , _bombState = -1
-        , _minerDirc = North
-        , _blastCrossRadius = 1
-        , _blastSquareRadius = 0
-        }
+initGame = do
+  allCoords <- knuthShuffle [V2 i j | i <- [0 .. width - 1], j <- [0 .. height - 2]]
+  let xm = 0
+      ym = height - 1
+      initialBoulders = filter (\(V2 x y) -> x /= (width `div` 2)) (take 35 allCoords)
+      initialEarths = filter (`notElem` initialBoulders) initEarth
+  return $ Game
+      { _miner  = V2 xm ym
+      , _minerRestTickConst = 2
+      , _minerRestTick = 2
+      , _monsterRestTickConst = 7
+      , _monsterRestTick = 7
+      , _score  = 0
+      , _dead   = False
+      , _bomb = V2 0 0
+      , _earths = initialEarths
+      , _boulders = initialBoulders
+      , _bombTickConst = 15
+      , _bombTick = 15
+      , _bombState = -1
+      , _minerDirc = North
+      , _blastCrossRadius = 1
+      , _blastSquareRadius = 0
+      , _blastCircleRadius = 10
+      , _monster = V2 (width `div` 2) 0
+      }
