@@ -5,7 +5,8 @@ module MyUtils
   ( 
     knuthShuffle,
     lastN,
-    circInc
+    circInc,
+    swapElems
   ) where
 
 import Data.List
